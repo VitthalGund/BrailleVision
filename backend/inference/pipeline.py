@@ -175,17 +175,19 @@ class YOLODotDetector:
         """Fallback: OpenCV blob detector when YOLO is unavailable."""
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
 
-        # SimpleBlobDetector parameters tuned for Braille dots
+        # SimpleBlobDetector parameters tuned for Braille dots (white blobs on black bg)
         params = cv2.SimpleBlobDetector_Params()
+        params.filterByColor = True
+        params.blobColor = 255  # Detect white blobs
         params.filterByArea = True
-        params.minArea = 20
+        params.minArea = 10
         params.maxArea = 500
         params.filterByCircularity = True
-        params.minCircularity = 0.6
+        params.minCircularity = 0.5
         params.filterByConvexity = True
-        params.minConvexity = 0.8
+        params.minConvexity = 0.7
         params.filterByInertia = True
-        params.minInertiaRatio = 0.5
+        params.minInertiaRatio = 0.4
 
         detector = cv2.SimpleBlobDetector_create(params)
         keypoints = detector.detect(gray)
@@ -194,6 +196,7 @@ class YOLODotDetector:
             Dot(x=kp.pt[0], y=kp.pt[1], confidence=0.7, radius=kp.size / 2)
             for kp in keypoints
         ]
+
 
 
 class CellGrouper:
@@ -230,13 +233,14 @@ class CellGrouper:
         return float(np.median(nn_distances))
 
     def _cluster_into_rows(self, dots: list[Dot], spacing: float) -> list[list[Dot]]:
-        """Cluster dots into horizontal rows based on y-coordinate proximity."""
+        """Cluster dots into horizontal rows based on y-coordinate proximity to the row mean."""
         sorted_dots = sorted(dots, key=lambda d: d.y)
         rows: list[list[Dot]] = []
         current_row: list[Dot] = [sorted_dots[0]]
 
         for dot in sorted_dots[1:]:
-            if abs(dot.y - current_row[-1].y) < spacing * 0.6:
+            row_mean_y = float(np.mean([d.y for d in current_row]))
+            if abs(dot.y - row_mean_y) < spacing * 0.5:
                 current_row.append(dot)
             else:
                 rows.append(sorted(current_row, key=lambda d: d.x))
@@ -257,22 +261,36 @@ class CellGrouper:
         while row_idx + 2 < len(rows):
             row1, row2, row3 = rows[row_idx], rows[row_idx + 1], rows[row_idx + 2]
 
-            # Check rows form a valid Braille cell triplet (3 rows ≈ 2 dot-spacings apart)
-            y_diff_12 = abs(row2[0].y - row1[0].y) if row1 and row2 else 999
-            y_diff_23 = abs(row3[0].y - row2[0].y) if row2 and row3 else 999
+            # Check rows form a valid Braille cell triplet using average row Y
+            y_mean_1 = np.mean([d.y for d in row1]) if row1 else 0
+            y_mean_2 = np.mean([d.y for d in row2]) if row2 else 999
+            y_mean_3 = np.mean([d.y for d in row3]) if row3 else 999
+            
+            y_diff_12 = abs(y_mean_2 - y_mean_1) if row1 and row2 else 999
+            y_diff_23 = abs(y_mean_3 - y_mean_2) if row2 and row3 else 999
 
             if y_diff_12 < spacing * 1.5 and y_diff_23 < spacing * 1.5:
                 # These 3 rows form Braille cells
                 all_dots = row1 + row2 + row3
                 col_groups = self._group_by_column(all_dots, spacing)
 
-                for col_pair_idx in range(0, len(col_groups) - 1, 2):
-                    left_col = col_groups[col_pair_idx]
-                    right_col = (
-                        col_groups[col_pair_idx + 1]
-                        if col_pair_idx + 1 < len(col_groups)
-                        else []
-                    )
+                col_idx = 0
+                while col_idx < len(col_groups):
+                    left_col = col_groups[col_idx]
+                    left_x = np.mean([d.x for d in left_col])
+                    right_col = []
+
+                    # If next column is within 1.4 * spacing, it represents the right side of this cell
+                    if col_idx + 1 < len(col_groups):
+                        next_col = col_groups[col_idx + 1]
+                        next_x = np.mean([d.x for d in next_col])
+                        if next_x - left_x < spacing * 1.4:
+                            right_col = next_col
+                            col_idx += 2
+                        else:
+                            col_idx += 1
+                    else:
+                        col_idx += 1
 
                     dot_pattern = self._build_dot_pattern(
                         left_col, right_col, row1, row2, row3, spacing

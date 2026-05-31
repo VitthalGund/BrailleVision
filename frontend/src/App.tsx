@@ -34,7 +34,7 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col md:flex-row w-screen min-h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
+    <div className="flex flex-col md:flex-row w-screen h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
       {/* Sidebar (Desktop) or Bottom Tab navigation (Mobile) */}
       <NavBar activeTab={activeTab} setActiveTab={setActiveTab} />
 

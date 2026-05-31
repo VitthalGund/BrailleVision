@@ -28,10 +28,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="BrailleVision API",
+    title="Dotly API",
     description=(
         "Real-time physical Braille-to-text recognition API. "
-        "Upload a camera image → get decoded English text + optional multilingual translation."
+        "Real-time Braille decoding in your pocket."
     ),
     version="1.0.0",
     lifespan=lifespan,

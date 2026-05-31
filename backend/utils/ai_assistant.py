@@ -6,15 +6,21 @@ import anthropic
 logger = logging.getLogger(__name__)
 
 MOCK_RESPONSES = {
-    "hello": "Hello! I am your BrailleVision Assistant. How can I help you read or understand Braille today?",
-    "help": "To scan Braille, ensure your camera has good side lighting (raking light) to cast clear shadows on the dots. Keep the paper flat.",
+    "hello": "Hello! I am your Dotly Assistant. How can I help you read or understand Braille today?",
+    "help": "To scan Braille with Dotly, ensure your camera has good side lighting (raking light) to cast clear shadows on the dots. Keep the paper flat.",
     "lighting": "Side lighting (raking light) is best for embossed Braille because it casts clear shadows on the raised bumps, making them visible to the camera.",
     "distance": "Hold the camera about 6 to 10 inches away from the Braille page, keeping it flat and level for the best recognition accuracy.",
     "grade 1": "Grade 1 Braille is a letter-for-letter translation of print text. Every print character is mapped directly to one Braille cell.",
-    "grade 2": "Grade 2 Braille uses contractions and abbreviations to save space. For example, the word 'the' is represented by a single cell. Currently, BrailleVision supports Grade 1.",
+    "grade 2": "Grade 2 Braille uses contractions and abbreviations to save space. For example, the word 'the' is represented by a single cell. Currently, Dotly supports Grade 1.",
     "w": "In English Braille, the letter 'w' is represented by dots 2,4,5,6 (⠺). It was added later to the Braille alphabet because French didn't use 'w' originally!",
     "capital": "In Grade 1 Braille, a capital letter is indicated by preceding the letter with a capital indicator cell (dot 6: ⠠).",
     "number": "Numbers are written using the letters 'a' through 'j' preceded by the number indicator cell (dots 3,4,5,6: ⠼). For example, '#a' means '1'.",
+    "alignment": "For best alignment, hold your camera perfectly parallel to the Braille surface (not tilted). Keep the camera steady and maintain a distance of 6-10 inches.",
+    "tips": "Tips for high accuracy: 1. Use strong raking light (light from the side). 2. Keep the camera flat and steady. 3. Avoid wrinkles. 4. Center the text in the camera view.",
+    "camera": "Hold the camera steady, parallel to the page, and at a distance of 6-10 inches. Good lighting from the side is key to resolving the raised dots.",
+    "thanks": "You're welcome! Let me know if you need help with anything else.",
+    "thank you": "You're welcome! Let me know if you need help with anything else.",
+    "braille": "Braille is a tactile system of writing for visually impaired people, using cells of raised dots (up to 6 dots in a 2x3 grid) to represent letters, numbers, and symbols.",
 }
 
 class AIAssistant:
@@ -61,7 +67,7 @@ class AIAssistant:
             return f"I see your recent scan recognized: '{context}'. If some characters look wrong, check the lighting and try keeping the camera steadier."
 
         return (
-            "I am currently in local assistant mode. You can ask me about: "
+            "I am your Dotly offline assistant. You can ask me about: "
             "lighting, scan distance, Grade 1 vs Grade 2 Braille, or special symbols like capitals and numbers!"
         )
 

@@ -11,9 +11,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'icons/*.png', 'braille-sample.jpg'],
       manifest: {
-        name: 'BrailleVision',
-        short_name: 'BrailleVision',
-        description: 'Real-time physical Braille recognition and translation',
+        name: 'Dotly',
+        short_name: 'Dotly',
+        description: 'Real-time Braille decoding in your pocket',
         start_url: '/',
         display: 'standalone',
         background_color: '#0F1729',

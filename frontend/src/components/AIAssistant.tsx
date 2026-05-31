@@ -20,7 +20,9 @@ export function AIAssistant() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll chat history to latest message
@@ -69,7 +71,7 @@ export function AIAssistant() {
     return (
       <button
         onClick={() => setIsMinimized(false)}
-        className="fixed bottom-4 right-4 z-40 bg-electric-teal text-white p-4 rounded-full shadow-2xl flex items-center gap-2 border border-cyan-400/20 active:scale-95 transition-all"
+        className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-40 bg-electric-teal text-white p-4 rounded-full shadow-2xl flex items-center gap-2 border border-cyan-400/20 active:scale-95 transition-all"
         title="Open AI Assistant"
       >
         <MessageSquare size={20} />
@@ -79,12 +81,12 @@ export function AIAssistant() {
   }
 
   return (
-    <div className="w-full md:w-80 bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col h-[480px] md:h-full">
+    <div className="w-full md:w-80 bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col h-[400px] md:h-full fixed md:relative bottom-20 md:bottom-auto right-4 md:right-auto left-4 md:left-auto z-40 md:z-auto">
       {/* Chat Title bar */}
       <div className="border-b border-slate-800 p-4 bg-slate-950 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-electric-teal animate-pulse" />
-          <h2 className="font-bold text-slate-200 text-sm">AI Braille Assistant</h2>
+          <h2 className="font-bold text-slate-200 text-sm">AI Dotly Assistant</h2>
         </div>
         <div className="flex items-center gap-1.5">
           {messages.length > 0 && (

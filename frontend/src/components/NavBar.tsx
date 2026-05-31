@@ -21,14 +21,14 @@ export function NavBar({ activeTab, setActiveTab }: NavBarProps) {
   return (
     <>
       {/* Desktop Sidebar (visible on md screens and up) */}
-      <aside className="hidden md:flex flex-col w-64 bg-slate-900 border-r border-slate-800 text-slate-100 min-h-screen p-4 flex-shrink-0">
+      <aside className="hidden md:flex flex-col w-64 bg-slate-900 border-r border-slate-800 text-slate-100 h-screen p-4 flex-shrink-0">
         <div className="flex items-center gap-3 px-2 py-4 mb-8">
           <div className="w-10 h-10 rounded-lg bg-vision-blue flex items-center justify-center font-bold text-xl text-white shadow-lg shadow-blue-500/20">
-            BV
+            D
           </div>
           <div>
-            <h1 className="font-bold text-lg leading-none">BrailleVision</h1>
-            <span className="text-xs text-slate-400">Accessibility Reader</span>
+            <h1 className="font-bold text-lg leading-none">Dotly</h1>
+            <span className="text-[10px] text-slate-400 leading-tight block mt-0.5">Real-time Braille decoding in your pocket.</span>
           </div>
         </div>
 
@@ -71,9 +71,9 @@ export function NavBar({ activeTab, setActiveTab }: NavBarProps) {
         <header className="flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-800 text-slate-100">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-vision-blue flex items-center justify-center font-bold text-white">
-              BV
+              D
             </div>
-            <h1 className="font-bold text-md">BrailleVision</h1>
+            <h1 className="font-bold text-md">Dotly</h1>
           </div>
           <button
             onClick={toggleDarkMode}

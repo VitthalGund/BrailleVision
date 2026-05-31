@@ -106,7 +106,7 @@ async def translate_text(req: TranslateRequest):
     # Try LibreTranslate first (self-hosted or libre.translate.de)
     libre_url = os.getenv("LIBRETRANSLATE_URL", "https://libretranslate.de/translate")
     try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
+        async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
             resp = await client.post(
                 libre_url,
                 json={
@@ -123,7 +123,28 @@ async def translate_text(req: TranslateRequest):
                     source_lang="en"
                 )
     except Exception as e:
-        logger.warning(f"LibreTranslate failed: {e}. Falling back to AI translator.")
+        logger.warning(f"LibreTranslate failed: {e}. Trying MyMemory.")
+
+    # Try MyMemory API (completely free and keyless fallback)
+    try:
+        async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://api.mymemory.translated.net/get",
+                params={
+                    "q": req.text,
+                    "langpair": f"en|{req.target_lang}",
+                }
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                translated = data.get("responseData", {}).get("translatedText")
+                if translated:
+                    return TranslateResponse(
+                        translated=translated,
+                        source_lang="en"
+                    )
+    except Exception as e:
+        logger.warning(f"MyMemory translation failed: {e}. Falling back to AI translator.")
 
     # Fallback to configured LLM (OpenAI, Anthropic, etc.)
     ai_provider = os.getenv("AI_PROVIDER", "mock").lower()

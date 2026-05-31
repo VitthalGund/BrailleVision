@@ -114,7 +114,7 @@ export function ResultPanel() {
   }
 
   return (
-    <div className="w-full bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col">
+    <div className="w-full bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col flex-shrink-0">
       {/* Panel Header */}
       <div className="border-b border-slate-800 p-4 bg-slate-950 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">

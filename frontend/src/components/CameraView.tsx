@@ -1,6 +1,11 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Camera, Image, RefreshCw, Upload, Play, Pause, AlertTriangle } from 'lucide-react';
+import { Camera, Image, RefreshCw, Upload, Play, Pause, AlertTriangle, Headphones, Mic, MicOff } from 'lucide-react';
 import { useCamera } from '../hooks/useCamera';
+import { useResultStore } from '../stores/resultStore';
+import { useSettingsStore } from '../stores/settingsStore';
+import { useVoiceCommands } from '../hooks/useVoiceCommands';
+import { useAudioGuidance } from '../hooks/useAudioGuidance';
+import { useTTS } from '../hooks/useTTS';
 
 interface CameraViewProps {
   onFrame: (blob: Blob) => void;
@@ -17,6 +22,14 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
   const [activeMode, setActiveMode] = useState<'camera' | 'upload'>('camera');
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [uploadedBlob, setUploadedBlob] = useState<Blob | null>(null);
+  
+  // AR/Glasses Mode state
+  const [isGlassesMode, setIsGlassesMode] = useState(false);
+
+  // Result and settings stores
+  const { cells, dots, text } = useResultStore();
+  const { targetLanguage, setTargetLanguage } = useSettingsStore();
+  const { speak, stop: stopTTS } = useTTS();
 
   // Sync camera stream with HTML5 video element
   useEffect(() => {
@@ -31,14 +44,12 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
 
     let timeoutId: any;
 
-    
     const captureLoop = () => {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       if (video && canvas && isLiveScan && !isInferring) {
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          // Adjust canvas dimensions to match current video aspect ratio
           canvas.width = video.videoWidth || 640;
           canvas.height = video.videoHeight || 480;
           
@@ -51,8 +62,9 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
         }
       }
       
-      // Throttle captures to every 1.5 seconds to avoid over-stacking requests
-      timeoutId = setTimeout(captureLoop, 1500);
+      // Throttle captures: 1.5s for normal live scan, or 2.0s to reduce load in wearable mode
+      const interval = isGlassesMode ? 2000 : 1500;
+      timeoutId = setTimeout(captureLoop, interval);
     };
 
     captureLoop();
@@ -60,7 +72,7 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [isLive, isLiveScan, isInferring, activeMode, onFrame]);
+  }, [isLive, isLiveScan, isInferring, activeMode, onFrame, isGlassesMode]);
 
   // Capture a single frame manually (Manual Snapshot)
   const handleSingleCapture = useCallback(() => {
@@ -80,6 +92,87 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
       }
     }
   }, [onFrame]);
+
+  // Voice Command Event Callbacks
+  const handleVoiceStart = useCallback(() => {
+    if (activeMode === 'camera') {
+      setIsLiveScan(true);
+      if (!isLive) {
+        startCamera();
+      }
+      speak("Voice command received: scanning resumed.");
+    }
+  }, [activeMode, isLive, startCamera, speak]);
+
+  const handleVoicePause = useCallback(() => {
+    setIsLiveScan(false);
+    speak("Voice command received: scanning paused.");
+  }, [speak]);
+
+  const handleVoiceTranslate = useCallback((langName: string) => {
+    const languageMap: Record<string, string> = {
+      english: 'en',
+      hindi: 'hi',
+      arabic: 'ar',
+      spanish: 'es',
+      french: 'fr',
+      german: 'de',
+      chinese: 'zh'
+    };
+    
+    const targetCode = languageMap[langName.toLowerCase()];
+    if (targetCode) {
+      setTargetLanguage(targetCode);
+      speak(`Language switched to ${langName}.`);
+    } else {
+      speak(`Language ${langName} is not supported yet.`);
+    }
+  }, [setTargetLanguage, speak]);
+
+  // Speech Recognition Listener
+  const { error: voiceError } = useVoiceCommands({
+    onStart: handleVoiceStart,
+    onPause: handleVoicePause,
+    onTranslate: handleVoiceTranslate,
+    enabled: isGlassesMode
+  });
+
+  // Audio feedback synthesizer
+  useAudioGuidance({
+    enabled: isGlassesMode && isLiveScan,
+    dotCount: dots.length,
+    cellCount: cells.length,
+    isInferring
+  });
+
+  // Auto-TTS readout loop for new text results
+  useEffect(() => {
+    if (isGlassesMode && text) {
+      const localeMap: Record<string, string> = {
+        en: 'en-US', hi: 'hi-IN', ar: 'ar-SA', es: 'es-ES', fr: 'fr-FR', de: 'de-DE', zh: 'zh-CN'
+      };
+      const locale = localeMap[targetLanguage] || 'en-US';
+      speak(text, locale);
+    }
+  }, [text, isGlassesMode, targetLanguage, speak]);
+
+  // Toggle Wearable Glasses Mode
+  const toggleGlassesMode = () => {
+    const nextState = !isGlassesMode;
+    setIsGlassesMode(nextState);
+    if (nextState) {
+      setActiveMode('camera');
+      setIsLiveScan(true);
+      if (!isLive) {
+        startCamera();
+      }
+      speak("Auditory AR Mode active. Speak Start to resume, or Stop to hold.");
+    } else {
+      setIsLiveScan(false);
+      stopTTS();
+      speak("Auditory AR Mode deactivated.");
+    }
+  };
 
   // Handle Drag & Drop / File Select Upload
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -106,19 +199,20 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
     if (mode === 'upload') {
       stopCamera();
       setIsLiveScan(false);
+      setIsGlassesMode(false);
     } else {
       startCamera();
     }
   };
 
   return (
-    <div className="w-full bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col">
+    <div className="w-full bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col flex-shrink-0">
       {/* Mode Selector Tabs */}
-      <div className="flex border-b border-slate-800 p-2 gap-2 bg-slate-950">
+      <div className="flex flex-col sm:flex-row border-b border-slate-800 p-2 gap-2 bg-slate-950">
         <button
           onClick={() => toggleMode('camera')}
           className={`flex-1 py-2 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold transition-all ${
-            activeMode === 'camera'
+            activeMode === 'camera' && !isGlassesMode
               ? 'bg-vision-blue text-white shadow-md'
               : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
           }`}
@@ -126,6 +220,19 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
           <Camera size={18} />
           Camera Feed
         </button>
+        
+        <button
+          onClick={toggleGlassesMode}
+          className={`flex-1 py-2 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold transition-all ${
+            isGlassesMode
+              ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/20'
+              : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
+          }`}
+        >
+          <Headphones size={18} />
+          AR Glasses Mode (Hands-free)
+        </button>
+
         <button
           onClick={() => toggleMode('upload')}
           className={`flex-1 py-2 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold transition-all ${
@@ -140,7 +247,7 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
       </div>
 
       {/* Main Display Frame */}
-      <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
+      <div className="relative aspect-video min-h-[360px] md:min-h-[480px] lg:min-h-[500px] w-full bg-black flex items-center justify-center overflow-hidden">
         {activeMode === 'camera' ? (
           <>
             {isLive ? (
@@ -162,7 +269,32 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
 
                 {/* Pulse Border Indicator when scanning live */}
                 {isLiveScan && (
-                  <div className="absolute inset-0 border-4 border-green-500 rounded-none pointer-events-none animate-pulse z-10" />
+                  <div className={`absolute inset-0 border-4 rounded-none pointer-events-none animate-pulse z-10 ${
+                    isGlassesMode ? 'border-purple-500' : 'border-green-500'
+                  }`} />
+                )}
+
+                {/* Glasses Mode Status HUD */}
+                {isGlassesMode && (
+                  <div className="absolute top-4 left-4 z-20 flex flex-col gap-2 pointer-events-none">
+                    <div className="bg-slate-950/85 backdrop-blur-md px-3 py-1.5 rounded-xl border border-purple-500/40 flex items-center gap-2 text-[10px] md:text-xs font-bold text-purple-300 shadow-lg">
+                      <span className="w-2 h-2 rounded-full bg-purple-500 animate-ping" />
+                      HUD ACTIVE — HANDS FREE
+                    </div>
+                    <div className="bg-slate-950/85 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 flex items-center gap-2 text-[9px] md:text-[10px] font-semibold text-slate-300 shadow-md">
+                      {voiceError ? (
+                        <span className="text-red-400 flex items-center gap-1.5">
+                          <AlertTriangle size={12} />
+                          {voiceError}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-green-400">
+                          <Mic size={12} className="animate-pulse" />
+                          Listening: "Read", "Stop", "Translate to Hindi"
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             ) : (
@@ -193,12 +325,12 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
                 <img
                   src={uploadedImage}
                   alt="Uploaded Braille source"
-                  className="max-h-[300px] object-contain rounded-lg shadow-lg"
+                  className="max-h-[340px] md:max-h-[440px] lg:max-h-[460px] object-contain rounded-lg shadow-lg"
                 />
                 {debuggerOverlay}
               </div>
             ) : (
-              <label className="border-2 border-dashed border-slate-700 hover:border-slate-500 rounded-xl cursor-pointer w-full h-full max-h-[260px] flex flex-col items-center justify-center gap-3 text-slate-400 hover:text-slate-200 transition-all p-6">
+              <label className="border-2 border-dashed border-slate-700 hover:border-slate-500 rounded-xl cursor-pointer w-full h-full max-h-[340px] md:max-h-[440px] lg:max-h-[460px] flex flex-col items-center justify-center gap-3 text-slate-400 hover:text-slate-200 transition-all p-6">
                 <Upload size={36} />
                 <div className="text-center">
                   <p className="font-semibold text-sm">Upload Braille photograph</p>
@@ -225,9 +357,9 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
               Processing frame...
             </span>
           ) : isLiveScan ? (
-            <span className="flex items-center gap-1.5 text-green-400">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              Scanning live
+            <span className={`flex items-center gap-1.5 ${isGlassesMode ? 'text-purple-400' : 'text-green-400'}`}>
+              <span className={`w-2 h-2 rounded-full animate-pulse ${isGlassesMode ? 'bg-purple-500' : 'bg-green-500'}`} />
+              {isGlassesMode ? 'AR scan running (hands-free)' : 'Scanning live'}
             </span>
           ) : (
             <span className="text-slate-400">Ready</span>
@@ -242,7 +374,9 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
                 onClick={() => setIsLiveScan(!isLiveScan)}
                 className={`px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-semibold transition-all ${
                   isLiveScan
-                    ? 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-600/10'
+                    ? isGlassesMode
+                      ? 'bg-purple-700 hover:bg-purple-800 text-white shadow-lg shadow-purple-700/10'
+                      : 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-600/10'
                     : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
                 }`}
               >
@@ -250,13 +384,15 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
                 {isLiveScan ? 'Pause Auto-Scan' : 'Live Scan'}
               </button>
 
-              <button
-                onClick={handleSingleCapture}
-                disabled={isInferring}
-                className="px-5 py-2 bg-vision-blue hover:bg-blue-700 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-xl font-semibold text-sm transition-all shadow-lg active:scale-95"
-              >
-                Snapshot
-              </button>
+              {!isGlassesMode && (
+                <button
+                  onClick={handleSingleCapture}
+                  disabled={isInferring}
+                  className="px-5 py-2 bg-vision-blue hover:bg-blue-700 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-xl font-semibold text-sm transition-all shadow-lg active:scale-95"
+                >
+                  Snapshot
+                </button>
+              )}
             </>
           )}
 
@@ -287,3 +423,4 @@ export function CameraView({ onFrame, isInferring, debuggerOverlay }: CameraView
     </div>
   );
 }
+

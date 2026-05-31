@@ -17,7 +17,7 @@ export function SettingsPage() {
   } = useSettingsStore();
 
   return (
-    <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 pb-20 md:pb-6 overflow-y-auto bg-slate-950 text-slate-100">
+    <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 pb-20 md:pb-6 overflow-y-auto min-h-0 bg-slate-950 text-slate-100">
       <div>
         <h2 className="text-xl md:text-2xl font-bold tracking-tight text-slate-100">App Settings</h2>
         <p className="text-xs md:text-sm text-slate-400 mt-0.5">
