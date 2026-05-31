@@ -40,13 +40,15 @@ Bridge the last-mile accessibility gap between physical Braille and digital unde
 
 ### V1.1 (Stretch / Judges' Bonus)
 
-| Feature             | Description                                                   |
-| ------------------- | ------------------------------------------------------------- |
-| Multilingual output | Translate result to any language via LibreTranslate or Claude |
-| AR overlay          | WebXR dot-detection overlay on phone camera feed              |
-| History & export    | Save past scans, export as PDF/TXT                            |
-| Confidence heatmap  | Visual highlight of low-confidence cells                      |
-| Batch image upload  | Process a photo or PDF of a Braille page                      |
+| Feature             | Description                                                   | Status |
+| ------------------- | ------------------------------------------------------------- | ------ |
+| Multilingual output | Translate result to any language via LibreTranslate or Claude | Built  |
+| Cardboard VR mode   | SBS split-screen phone-in-headset with camera passthrough and 3D floating text | **Shipped** |
+| Smart Glasses / WebXR | Three.js spatial text billboards for Meta Quest, Apple Vision Pro | **Shipped** |
+| Hands-free mode     | Voice commands + audio beep guidance + verbal alignment prompts | **Shipped** |
+| History & export    | Save past scans, export as PDF/TXT                            | Built  |
+| Confidence heatmap  | Visual highlight of low-confidence cells                      | Planned |
+| Batch image upload  | Process a photo or PDF of a Braille page                      | Built  |
 
 ### Out of Scope (This Hackathon)
 
@@ -82,6 +84,12 @@ Bridge the last-mile accessibility gap between physical Braille and digital unde
 - **Goal**: Help her blind friend read a Braille menu at a restaurant
 - **Pain**: No app handles real physical Braille well; Google Lens fails
 - **Delight**: AR overlay shows English text floating above Braille dots in real time
+
+### Persona 5 — Amira, 31 — Blind Power User with a Meta Quest (Cairo)
+
+- **Goal**: Read Braille textbooks completely hands-free while seated
+- **Pain**: Phone-based apps require her to hold and tap — impossible during long reading sessions
+- **Delight**: Places Braille book on desk, phone scans it, and translated text floats as 3D billboards inside her Quest headset — purely voice-controlled, zero touch needed
 
 ---
 

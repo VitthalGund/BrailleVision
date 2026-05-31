@@ -3,39 +3,44 @@
 ## High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   CLIENT (PWA)                          │
-│  React + Tailwind + WebRTC Camera + Web Speech API      │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │
-│  │ Camera   │ │ AR View  │ │ Result   │ │ AI Chat   │  │
-│  │ Feed     │ │ Overlay  │ │ Display  │ │ Assistant │  │
-│  └────┬─────┘ └─────┬────┘ └────┬─────┘ └─────┬─────┘  │
-└───────┼─────────────┼───────────┼─────────────┼─────────┘
-        │             │           │             │
-        ▼             ▼           ▼             ▼
-┌─────────────────────────────────────────────────────────┐
-│              BACKEND API (FastAPI + Python)             │
-│  ┌──────────────────┐   ┌─────────────────────────────┐ │
-│  │ /api/detect      │   │ /api/translate               │ │
-│  │ /api/infer       │   │ /api/tts                     │ │
-│  │ /api/stream      │   │ /api/chat                    │ │
-│  └────────┬─────────┘   └─────────────────────────────┘ │
-│           │                                              │
-│  ┌────────▼──────────────────────────────────────────┐  │
-│  │           INFERENCE PIPELINE                       │  │
-│  │  ┌──────────┐  ┌──────────┐  ┌─────────────────┐  │  │
-│  │  │ OpenCV   │→ │ YOLOv8n  │→ │ Cell Classifier  │  │  │
-│  │  │ Preproc  │  │ Dot Det. │  │ → Braille→Text  │  │  │
-│  │  └──────────┘  └──────────┘  └─────────────────┘  │  │
-│  └───────────────────────────────────────────────────┘  │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │              EXTERNAL SERVICES                      │  │
-│  │  Claude API (AI assistant + translation fallback)  │  │
-│  │  LibreTranslate (primary translation, free)        │  │
-│  │  Google TTS / Browser Web Speech (fallback)        │  │
-│  └────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                     CLIENT (PWA)                               │
+│  React + Tailwind + WebRTC Camera + Web Speech + Three.js      │
+│  ┌──────────┐ ┌───────────┐ ┌──────────┐ ┌───────────────────┐ │
+│  │ Camera   │ │ Cardboard │ │ Spatial  │ │ AI Chat Assistant │ │
+│  │ Feed     │ │ VR (SBS)  │ │ XR View  │ │ (Claude API)      │ │
+│  └────┬─────┘ └─────┬─────┘ └────┬─────┘ └─────┬─────────────┘ │
+│       │              │             │              │              │
+│  ┌────▼──────────────▼─────────────▼──────────────▼──────────┐  │
+│  │          State (Zustand): resultStore, settingsStore,      │  │
+│  │          companionStore (VR mode, pairing code, role)      │  │
+│  └────────────────────────────┬───────────────────────────────┘  │
+└───────────────────────────────┼────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────┐
+│              BACKEND API (FastAPI + Python)                  │
+│  ┌──────────────────┐   ┌─────────────────────────────────┐ │
+│  │ /api/detect      │   │ /api/translate                   │ │
+│  │ /api/infer       │   │ /api/tts                         │ │
+│  │ /api/stream      │   │ /api/chat                        │ │
+│  └────────┬─────────┘   └─────────────────────────────────┘ │
+│           │                                                  │
+│  ┌────────▼──────────────────────────────────────────────┐  │
+│  │           INFERENCE PIPELINE                           │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌─────────────────┐      │  │
+│  │  │ OpenCV   │→ │ YOLOv8n  │→ │ Cell Classifier  │      │  │
+│  │  │ Preproc  │  │ Dot Det. │  │ → Braille→Text  │      │  │
+│  │  └──────────┘  └──────────┘  └─────────────────┘      │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │              EXTERNAL SERVICES                          │  │
+│  │  Claude API (AI assistant + translation fallback)      │  │
+│  │  LibreTranslate (primary translation, free)            │  │
+│  │  Google TTS / Browser Web Speech (fallback)            │  │
+│  └────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -50,9 +55,10 @@
 | Styling   | Tailwind CSS 3                   | Utility-first, fast theming       |
 | PWA       | Vite PWA plugin                  | Offline, installable              |
 | Camera    | `getUserMedia` + Canvas API      | Browser-native, no library needed |
-| AR        | WebXR Device API + Three.js      | AR overlay on mobile              |
-| Speech    | Web Speech API (SpeechSynthesis) | Zero-cost, built-in               |
-| State     | Zustand                          | Lightweight global state          |
+| VR Mode   | SBS dual-canvas + `DeviceOrientationEvent` | Cardboard passthrough — only viable camera path inside a phone headset |
+| XR Mode   | Three.js r169 + WebXR Device API (`immersive-ar`) | Spatial floating text for Quest / Vision Pro |
+| Speech    | Web Speech API (SpeechSynthesis + SpeechRecognition) | Zero-cost, built-in; hands-free voice commands |
+| State     | Zustand (resultStore, settingsStore, companionStore) | Lightweight global state |
 | Routing   | React Router v6                  | SPA routing                       |
 
 ### Backend
@@ -79,7 +85,59 @@
 
 ---
 
-## System Boundaries & Invariants
+## VR/XR Modes — Architecture Detail
+
+### Mode 1: Cardboard VR (Phone-in-Headset)
+
+**Why SBS canvas, not WebXR `immersive-vr`?**
+- `immersive-vr` WebXR blocks `getUserMedia` camera on all phones (browser security policy).
+- SBS canvas + native `getUserMedia` stream is the **only viable camera passthrough path** for phone-based Cardboard headsets.
+
+```
+Phone (browser tab):
+  getUserMedia (rear camera)
+       │
+       ▼
+  StereoCardboardView.tsx
+  ┌─────────────────────┬─────────────────────┐
+  │   LEFT EYE canvas   │   RIGHT EYE canvas  │
+  │  camera + text      │  camera + text       │
+  │  parallax X = -8px  │  parallax X = +8px   │
+  └─────────────────────┴─────────────────────┘
+  DeviceOrientationEvent → gyro angles → text overlay offset
+  Auto-capture every 2s → backend /api/infer → text update
+```
+
+### Mode 2: Standalone Headset / Smart Glasses (WebXR)
+
+**Target devices:** Meta Quest (Horizon Browser), Apple Vision Pro (Safari WebXR)
+
+```
+Headset browser:
+  SpatialXRView.tsx (Three.js)
+  navigator.xr.requestSession('immersive-ar')
+       │
+       ▼
+  THREE.WebGLRenderer (xr.enabled = true)
+  THREE.PerspectiveCamera @ eye-level (y=1.6m)
+  THREE.Mesh (PlaneGeometry) ← CanvasTexture (text billboard)
+  Positioned 2m in front, always faces camera (billboard lookAt)
+
+Fallback (no WebXR):
+  Star field + GridHelper + mouse-drag orbit rotation
+  (desktop 3D simulator for testing)
+```
+
+### Hands-Free Guidance System
+
+| Layer | Hook | Mechanism |
+|-------|------|-----------|
+| Voice commands | `useVoiceCommands` | `webkitSpeechRecognition` continuous; triggers: "Read", "Stop", "Translate to [lang]" |
+| Audio beeps | `useAudioGuidance` | Web Audio API oscillator; pitch ∝ cell count (more cells = higher pitch) |
+| Verbal directions | `useVerbalGuidance` | `speechSynthesis` every 4s; analyses dot centroid offset from frame center |
+
+---
+
 
 ### What the System Must Do
 
