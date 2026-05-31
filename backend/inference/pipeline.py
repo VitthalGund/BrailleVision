@@ -180,14 +180,14 @@ class YOLODotDetector:
         params.filterByColor = True
         params.blobColor = 255  # Detect white blobs
         params.filterByArea = True
-        params.minArea = 10
-        params.maxArea = 500
+        params.minArea = 5
+        params.maxArea = 1000
         params.filterByCircularity = True
-        params.minCircularity = 0.5
+        params.minCircularity = 0.4
         params.filterByConvexity = True
-        params.minConvexity = 0.7
+        params.minConvexity = 0.5
         params.filterByInertia = True
-        params.minInertiaRatio = 0.4
+        params.minInertiaRatio = 0.2
 
         detector = cv2.SimpleBlobDetector_create(params)
         keypoints = detector.detect(gray)

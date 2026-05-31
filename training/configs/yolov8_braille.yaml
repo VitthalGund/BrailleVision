@@ -1,0 +1,28 @@
+# BrailleVision — YOLOv8 Custom Hyperparameters
+
+# Core
+task: detect
+mode: train
+model: yolov8n.pt
+
+# Optimiser
+lr0: 0.01
+lrf: 0.01
+momentum: 0.937
+weight_decay: 0.0005
+warmup_epochs: 3
+
+# Augmentation (Critical for Braille)
+hsv_h: 0.015    # slight hue variation
+hsv_s: 0.3      # slight saturation variation
+hsv_v: 0.5      # HIGH brightness variation (simulate uneven lighting, shadows)
+degrees: 10.0   # rotate up to 10 degrees (mobile scan wobble)
+translate: 0.1
+scale: 0.5      # zoom variation
+flipud: 0.0     # NO vertical flip (Braille is directional)
+fliplr: 0.5     # Horizontal flip is okay (symmetric)
+mosaic: 1.0     # Mosaic augmentation
+blur: 2         # Slight blur (out of focus camera)
+
+# Regularisation
+patience: 25    # early stopping
