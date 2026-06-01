@@ -1,4 +1,4 @@
-﻿"""
+"""
 BrailleVision â€” Dataset Verifier
 
 Sanity-checks the YOLO dataset before training:
@@ -49,7 +49,7 @@ def check_split(dataset_dir: Path, split: str) -> dict:
             missing_labels.append(img_path.name)
             continue
 
-        content = lbl_path.read_text().strip()
+        content = lbl_path.read_text(encoding='utf-8', errors='ignore').strip()
         if not content:
             empty_labels.append(img_path.name)
             continue
