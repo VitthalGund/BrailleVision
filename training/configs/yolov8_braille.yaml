@@ -22,7 +22,7 @@ scale: 0.5      # zoom variation
 flipud: 0.0     # NO vertical flip (Braille is directional)
 fliplr: 0.5     # Horizontal flip is okay (symmetric)
 mosaic: 1.0     # Mosaic augmentation
-blur: 2         # Slight blur (out of focus camera)
+close_mosaic: 10  # disable mosaic for last 10 epochs
 
 # Regularisation
 patience: 25    # early stopping

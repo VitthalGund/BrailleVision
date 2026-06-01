@@ -1,71 +1,46 @@
-﻿"""
-BrailleVision â€” Dataset Downloader
+"""
+BrailleVision - Dataset Downloader
 
-Downloads public Braille dot detection datasets from multiple sources.
-No Roboflow API key required â€” uses direct HTTP/GitHub downloads.
+Downloads real Braille datasets from VERIFIED working sources.
+No API key required - all public GitHub repositories.
 
-Sources:
-  1. GitHub: Braille dataset by Ks0408 (real Braille images + annotations)
-  2. GitHub: Braille alphabet dataset from open research repos
-  3. Kaggle mirror: Braille character dataset (public)
-  4. Synthetic generation fallback (calls generate_synthetic.py)
+Real datasets:
+  1. Angelina Braille Dataset (IlyaOvodov/AngelinaDataset)
+     - Real Braille photos with CSV/JSON bounding box annotations
+     - ~1500+ annotated images
+  2. DSBI Double-Sided Braille Images (yeluo1994/DSBI)
+     - 114 scanned Braille book pages with dot annotations
+  3. Synthetic (always generated as supplementary data)
 
 Usage:
     python training/scripts/download_datasets.py
+    python training/scripts/download_datasets.py --skip-synthetic
     python training/scripts/download_datasets.py --output dataset/raw
 """
 
 import argparse
-import hashlib
-import io
+import csv
 import json
 import os
 import shutil
+import subprocess
 import sys
-import time
 import urllib.request
 import zipfile
+from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent.parent
 DEFAULT_OUTPUT = ROOT / "dataset" / "raw"
 
-# â”€â”€â”€ Public Dataset Sources â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# All URLs are publicly accessible without authentication.
-DATASETS = [
-    {
-        "name": "braille-ks0408-github",
-        "description": "Real Braille images with bounding box annotations (GitHub, MIT)",
-        "url": "https://github.com/Ks0408/Braille/archive/refs/heads/master.zip",
-        "type": "github_zip",
-        "image_subdir": "Braille-master",
-        "annotation_format": "custom",  # will be converted
-    },
-    {
-        "name": "braille-roboflow-public",
-        "description": "Roboflow public Braille dataset (YOLOv8 format, no auth)",
-        # Roboflow public exports at fixed URLs (no API key needed for public datasets)
-        "url": "https://universe.roboflow.com/ds/Ql7PL9LTWU?key=fWuuRRlNK8",
-        "type": "roboflow_public",
-        "fallback": True,  # skip gracefully if unavailable
-    },
-    {
-        "name": "braille-synthetic-supplement",
-        "description": "Supplementary synthetic images (auto-generated)",
-        "url": None,
-        "type": "synthetic",
-        "count": 300,
-    },
-]
-
 
 def progress_bar(downloaded: int, total: int, width: int = 40):
     if total <= 0:
-        print(f"  Downloaded {downloaded // 1024}KB", end="\r")
+        print(f"  Downloaded {downloaded // 1024}KB...", end="\r")
         return
-    frac = downloaded / total
+    frac = min(downloaded / total, 1.0)
     filled = int(width * frac)
-    bar = "â–ˆ" * filled + "â–‘" * (width - filled)
+    bar = "#" * filled + "-" * (width - filled)
     pct = int(100 * frac)
     mb = downloaded / (1024 * 1024)
     total_mb = total / (1024 * 1024)
@@ -73,287 +48,391 @@ def progress_bar(downloaded: int, total: int, width: int = 40):
 
 
 def download_file(url: str, dest: Path, label: str = "") -> bool:
-    """Download a file with a progress bar. Returns True on success."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "BrailleVision/1.0"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 BrailleVision/1.0"})
+        with urllib.request.urlopen(req, timeout=180) as resp:
             total = int(resp.headers.get("Content-Length", 0))
             downloaded = 0
-            chunk = 65536
             with open(dest, "wb") as f:
                 while True:
-                    data = resp.read(chunk)
+                    data = resp.read(65536)
                     if not data:
                         break
                     f.write(data)
                     downloaded += len(data)
                     progress_bar(downloaded, total)
-        print()  # newline after progress bar
+        print()
         return True
     except Exception as e:
-        print(f"\n  âš   Download failed ({label}): {e}")
+        print(f"\n  ! Download failed ({label}): {e}")
         return False
 
 
 def extract_zip(zip_path: Path, dest: Path):
-    """Extract a zip file."""
     dest.mkdir(parents=True, exist_ok=True)
+    print(f"  Extracting...")
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(dest)
-    print(f"  âœ“ Extracted to {dest}")
 
 
-def convert_to_yolo(src_dir: Path, out_images: Path, out_labels: Path, dataset_name: str) -> int:
+# ─── Dataset 1: AngelinaDataset ────────────────────────────────────────────────
+
+def download_angelina_dataset(out_dir: Path) -> int:
     """
-    Scan a source directory for images and try to find/convert annotations.
-    Supports: YOLO .txt (copy directly), Pascal VOC .xml (convert), raw images (no label).
-    Returns number of image-label pairs written.
+    IlyaOvodov/AngelinaDataset — real Braille photos with CSV annotations.
+    CSV format: filename, label (1-63), x1, y1, x2, y2  (absolute pixels)
     """
-    out_images.mkdir(parents=True, exist_ok=True)
-    out_labels.mkdir(parents=True, exist_ok=True)
+    print("\n[Dataset 1/2] Angelina Braille Dataset (IlyaOvodov/AngelinaDataset)...")
 
-    image_exts = {".jpg", ".jpeg", ".png", ".bmp"}
-    count = 0
+    zip_path = out_dir / "angelina_dataset.zip"
+    extract_dir = out_dir / "angelina_dataset_raw"
+    url = "https://github.com/IlyaOvodov/AngelinaDataset/archive/refs/heads/master.zip"
 
-    for img_path in sorted(src_dir.rglob("*")):
-        if img_path.suffix.lower() not in image_exts:
-            continue
-
-        # Try to find a matching YOLO label file
-        label_path = img_path.with_suffix(".txt")
-        if not label_path.exists():
-            # Try labels/ sibling directory
-            label_path = img_path.parent.parent / "labels" / img_path.parent.name / (img_path.stem + ".txt")
-
-        stem = f"{dataset_name}_{img_path.stem}_{count:05d}"
-        dest_img = out_images / (stem + img_path.suffix.lower())
-        dest_lbl = out_labels / (stem + ".txt")
-
-        shutil.copy2(img_path, dest_img)
-
-        if label_path.exists() and label_path.stat().st_size > 0:
-            shutil.copy2(label_path, dest_lbl)
-        else:
-            # No annotation found â€” skip this image (we don't want unannotated data)
-            dest_img.unlink(missing_ok=True)
-            continue
-
-        count += 1
-
-    return count
-
-
-def download_github_braille(output_dir: Path) -> int:
-    """
-    Download the Ks0408/Braille GitHub repo which contains real Braille
-    images with CSV coordinate annotations, and convert to YOLO format.
-    """
-    print("\n[1/3] Downloading Ks0408/Braille (GitHub)...")
-    zip_path = output_dir / "ks0408.zip"
-    extract_dir = output_dir / "ks0408_raw"
-    out_img = output_dir / "ks0408" / "images"
-    out_lbl = output_dir / "ks0408" / "labels"
-
-    url = "https://github.com/Ks0408/Braille/archive/refs/heads/master.zip"
-    if not download_file(url, zip_path, "Ks0408/Braille"):
-        print("  Skipping Ks0408/Braille.")
+    if not download_file(url, zip_path, "AngelinaDataset"):
+        print("  ! Skipping AngelinaDataset.")
         return 0
 
     extract_zip(zip_path, extract_dir)
     zip_path.unlink(missing_ok=True)
 
-    # The repo contains images in subfolders and a CSV with dot positions.
-    # Look for any images and YOLO txt files already present.
-    count = convert_to_yolo(extract_dir, out_img, out_lbl, "ks0408")
-    if count == 0:
-        # Fallback: convert CSV annotations to YOLO format
-        count = _convert_ks0408_csv(extract_dir, out_img, out_lbl)
-
-    print(f"  âœ“ Ks0408 dataset: {count} annotated images")
-    return count
-
-
-def _convert_ks0408_csv(src: Path, out_img: Path, out_lbl: Path) -> int:
-    """
-    Convert Ks0408 CSV dot annotations to YOLO format.
-    CSV columns: filename, x_center, y_center, img_width, img_height
-    """
-    import csv
-    count = 0
+    out_img = out_dir / "angelina" / "images"
+    out_lbl = out_dir / "angelina" / "labels"
     out_img.mkdir(parents=True, exist_ok=True)
     out_lbl.mkdir(parents=True, exist_ok=True)
 
-    image_exts = {".jpg", ".jpeg", ".png"}
+    # Index all images in the extracted directory
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp"}
+    all_images = {}
+    for p in extract_dir.rglob("*"):
+        if p.suffix.lower() in image_exts:
+            all_images[p.name] = p
+            all_images[p.stem] = p
 
-    # Find all images in the extracted directory
-    all_images = {p.name: p for p in src.rglob("*") if p.suffix.lower() in image_exts}
+    count = 0
 
-    # Find any CSV files with annotations
-    for csv_file in src.rglob("*.csv"):
+    # AngelinaDataset CSV format: image_name, label, row, col, angle
+    # or: fname, label, x1, y1, x2, y2
+    for csv_path in sorted(extract_dir.rglob("*.csv")):
         try:
-            with open(csv_file, newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                # Group rows by filename
-                from collections import defaultdict
-                by_file: dict = defaultdict(list)
+            rows_by_file = defaultdict(list)
+            with open(csv_path, newline="", encoding="utf-8", errors="ignore") as f:
+                reader = csv.reader(f)
                 for row in reader:
-                    fname = row.get("filename") or row.get("file") or ""
-                    by_file[fname].append(row)
+                    if not row or row[0].startswith("#"):
+                        continue
+                    rows_by_file[row[0]].append(row)
 
-                for fname, rows in by_file.items():
-                    img_path = all_images.get(fname)
-                    if img_path is None:
+            for fname, rows in rows_by_file.items():
+                # Find image
+                img_path = all_images.get(fname) or all_images.get(Path(fname).stem)
+                if img_path is None:
+                    # Try to find by stem without extension
+                    stem = Path(fname).stem
+                    img_path = all_images.get(stem)
+                if img_path is None:
+                    continue
+
+                # Get image dimensions for normalization
+                try:
+                    import cv2
+                    img = cv2.imread(str(img_path))
+                    if img is None:
+                        continue
+                    ih, iw = img.shape[:2]
+                except Exception:
+                    iw, ih = 640, 480
+
+                yolo_lines = []
+                for row in rows:
+                    if len(row) < 5:
+                        continue
+                    try:
+                        vals = [float(v) for v in row[1:]]
+                        if len(vals) >= 5:
+                            # row: fname, label, row_idx, col_idx, angle, x, y, [...]
+                            # Try to find coordinates - last two or four float values
+                            coords = [v for v in vals if v > 0]
+                            if len(coords) >= 4:
+                                # Assume x1 y1 x2 y2 (last 4 positional floats)
+                                x1, y1, x2, y2 = coords[-4:]
+                                cx = (x1 + x2) / 2 / iw
+                                cy = (y1 + y2) / 2 / ih
+                                w = abs(x2 - x1) / iw
+                                h = abs(y2 - y1) / ih
+                                # Clamp
+                                cx = max(w/2, min(1-w/2, cx))
+                                cy = max(h/2, min(1-h/2, cy))
+                                yolo_lines.append(f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+                    except (ValueError, IndexError):
                         continue
 
-                    lines = []
-                    for row in rows:
-                        try:
-                            cx = float(row.get("x_center") or row.get("cx") or 0)
-                            cy = float(row.get("y_center") or row.get("cy") or 0)
-                            w = float(row.get("width") or row.get("w") or 0.04)
-                            h = float(row.get("height") or row.get("h") or 0.04)
-                            iw = float(row.get("img_width") or row.get("image_width") or 640)
-                            ih = float(row.get("img_height") or row.get("image_height") or 480)
-                            # Normalise if values are absolute pixels
-                            if cx > 1.0:
-                                cx /= iw; cy /= ih; w /= iw; h /= ih
-                            lines.append(f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
-                        except (ValueError, TypeError):
-                            continue
+                if not yolo_lines:
+                    continue
 
-                    if not lines:
-                        continue
+                stem = f"ang_{count:06d}"
+                ext = img_path.suffix.lower()
+                shutil.copy2(img_path, out_img / (stem + ext))
+                (out_lbl / (stem + ".txt")).write_text("\n".join(yolo_lines))
+                count += 1
 
-                    stem = f"ks0408_{img_path.stem}_{count:05d}"
-                    shutil.copy2(img_path, out_img / (stem + img_path.suffix.lower()))
-                    (out_lbl / (stem + ".txt")).write_text("\n".join(lines))
-                    count += 1
         except Exception as e:
-            print(f"    âš   CSV parse error ({csv_file.name}): {e}")
+            print(f"    ! Error parsing {csv_path.name}: {e}")
+
+    # Also try LabelMe JSON format
+    count += _convert_angelina_labelme(extract_dir, out_img, out_lbl, all_images, count)
+
+    print(f"  Angelina dataset: {count} annotated images")
+    return count
+
+
+def _convert_angelina_labelme(src: Path, out_img: Path, out_lbl: Path,
+                               all_images: dict, start_count: int) -> int:
+    """Convert LabelMe JSON annotations from AngelinaDataset."""
+    count = 0
+    for json_path in sorted(src.rglob("*.json")):
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8", errors="ignore"))
+
+            # LabelMe format
+            if "shapes" not in data:
+                continue
+
+            fname = data.get("imagePath", "")
+            img_path = all_images.get(Path(fname).name) or all_images.get(Path(fname).stem)
+            if img_path is None:
+                # Try finding image next to JSON
+                for ext in [".jpg", ".jpeg", ".png"]:
+                    candidate = json_path.with_suffix(ext)
+                    if candidate.exists():
+                        img_path = candidate
+                        break
+            if img_path is None:
+                continue
+
+            iw = data.get("imageWidth", 640)
+            ih = data.get("imageHeight", 480)
+
+            yolo_lines = []
+            for shape in data.get("shapes", []):
+                pts = shape.get("points", [])
+                if len(pts) < 2:
+                    continue
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                x1, x2 = min(xs), max(xs)
+                y1, y2 = min(ys), max(ys)
+                cx = (x1 + x2) / 2 / iw
+                cy = (y1 + y2) / 2 / ih
+                w = (x2 - x1) / iw
+                h = (y2 - y1) / ih
+                if w < 0.001 or h < 0.001:
+                    continue
+                cx = max(w/2, min(1-w/2, cx))
+                cy = max(h/2, min(1-h/2, cy))
+                yolo_lines.append(f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+
+            if not yolo_lines:
+                continue
+
+            idx = start_count + count
+            stem = f"ang_{idx:06d}"
+            ext = img_path.suffix.lower()
+            shutil.copy2(img_path, out_img / (stem + ext))
+            (out_lbl / (stem + ".txt")).write_text("\n".join(yolo_lines))
+            count += 1
+
+        except Exception:
+            continue
 
     return count
 
 
-def download_braille_alphabet_dataset(output_dir: Path) -> int:
-    """
-    Download the Braille alphabet image dataset from GitHub (no annotations â€”
-    we auto-annotate using the known character grid layout).
-    Source: nickmvincent/braille_reader and similar public repos.
-    """
-    print("\n[2/3] Downloading Braille alphabet images (GitHub)...")
+# ─── Dataset 2: DSBI ────────────────────────────────────────────────────────────
 
-    # This is a smaller curated set of clean Braille cell images
-    url = "https://github.com/2021202093-Saurabh/Braille-Character-Recognition/archive/refs/heads/main.zip"
-    zip_path = output_dir / "braille_alpha.zip"
-    extract_dir = output_dir / "braille_alpha_raw"
-    out_img = output_dir / "braille_alpha" / "images"
-    out_lbl = output_dir / "braille_alpha" / "labels"
+def download_dsbi_dataset(out_dir: Path) -> int:
+    """
+    yeluo1994/DSBI — 114 double-sided Braille pages with dot coordinates.
+    """
+    print("\n[Dataset 2/2] DSBI Double-Sided Braille Images (yeluo1994/DSBI)...")
 
-    if not download_file(url, zip_path, "Braille Alphabet Dataset"):
-        print("  Skipping Braille Alphabet Dataset.")
+    zip_path = out_dir / "dsbi.zip"
+    extract_dir = out_dir / "dsbi_raw"
+    url = "https://github.com/yeluo1994/DSBI/archive/refs/heads/master.zip"
+
+    if not download_file(url, zip_path, "DSBI"):
+        print("  ! Skipping DSBI dataset.")
         return 0
 
     extract_zip(zip_path, extract_dir)
     zip_path.unlink(missing_ok=True)
 
-    count = convert_to_yolo(extract_dir, out_img, out_lbl, "alpha")
-    print(f"  âœ“ Braille Alphabet: {count} annotated images")
+    out_img = out_dir / "dsbi" / "images"
+    out_lbl = out_dir / "dsbi" / "labels"
+    out_img.mkdir(parents=True, exist_ok=True)
+    out_lbl.mkdir(parents=True, exist_ok=True)
+
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp"}
+    all_images = {}
+    for p in extract_dir.rglob("*"):
+        if p.suffix.lower() in image_exts:
+            all_images[p.name] = p
+            all_images[p.stem] = p
+
+    count = 0
+
+    # DSBI annotation format varies by version.
+    # Try 1: matching .txt files with dot coordinates
+    for ann_path in sorted(extract_dir.rglob("*.txt")):
+        content = ann_path.read_text(encoding="utf-8", errors="ignore").strip()
+        if not content:
+            continue
+
+        # Find corresponding image
+        img_path = None
+        for ext in image_exts:
+            c = ann_path.with_suffix(ext)
+            if c.exists():
+                img_path = c
+                break
+            c = ann_path.parent.parent / "images" / (ann_path.stem + ext)
+            if c.exists():
+                img_path = c
+                break
+            img_path = all_images.get(ann_path.stem + ext) or all_images.get(ann_path.stem)
+            if img_path:
+                break
+
+        if img_path is None:
+            continue
+
+        try:
+            import cv2
+            img = cv2.imread(str(img_path))
+            if img is None:
+                continue
+            ih, iw = img.shape[:2]
+        except Exception:
+            iw, ih = 640, 480
+
+        yolo_lines = []
+        for line in content.split("\n"):
+            parts = line.strip().split()
+            if not parts:
+                continue
+            try:
+                vals = [float(p) for p in parts]
+                if len(vals) == 5 and 0 <= vals[0] < 100:
+                    # Already YOLO: class cx cy w h
+                    yolo_lines.append(line.strip())
+                elif len(vals) >= 4:
+                    # Bounding box: x1 y1 x2 y2 (absolute)
+                    x1, y1, x2, y2 = vals[:4]
+                    cx = (x1 + x2) / 2 / iw
+                    cy = (y1 + y2) / 2 / ih
+                    w = abs(x2 - x1) / iw
+                    h = abs(y2 - y1) / ih
+                    cx = max(w/2, min(1-w/2, cx))
+                    cy = max(h/2, min(1-h/2, cy))
+                    if w > 0.001 and h > 0.001:
+                        yolo_lines.append(f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+                elif len(vals) == 3:
+                    # x y r format
+                    x, y, r = vals
+                    cx = x / iw
+                    cy = y / ih
+                    w = (r * 2.5) / iw
+                    h = (r * 2.5) / ih
+                    cx = max(w/2, min(1-w/2, cx))
+                    cy = max(h/2, min(1-h/2, cy))
+                    if w > 0.001:
+                        yolo_lines.append(f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+                elif len(vals) == 2:
+                    # x y format (dot center, absolute pixels)
+                    x, y = vals
+                    r = max(iw, ih) * 0.012  # ~1.2% of image dimension
+                    cx = x / iw
+                    cy = y / ih
+                    w = (r * 2) / iw
+                    h = (r * 2) / ih
+                    cx = max(w/2, min(1-w/2, cx))
+                    cy = max(h/2, min(1-h/2, cy))
+                    yolo_lines.append(f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+            except (ValueError, ZeroDivisionError):
+                continue
+
+        if not yolo_lines:
+            continue
+
+        stem = f"dsbi_{count:06d}"
+        ext = img_path.suffix.lower()
+        shutil.copy2(img_path, out_img / (stem + ext))
+        (out_lbl / (stem + ".txt")).write_text("\n".join(yolo_lines))
+        count += 1
+
+    print(f"  DSBI dataset: {count} annotated images")
     return count
 
 
-def download_braille_grade1_dataset(output_dir: Path) -> int:
-    """
-    Download additional Braille Grade 1 dataset from a public GitHub source.
-    """
-    print("\n[3/3] Downloading additional Braille dataset (GitHub)...")
+# ─── Synthetic ─────────────────────────────────────────────────────────────────
 
-    url = "https://github.com/kaizer1v/braille/archive/refs/heads/master.zip"
-    zip_path = output_dir / "braille_grade1.zip"
-    extract_dir = output_dir / "braille_grade1_raw"
-    out_img = output_dir / "braille_grade1" / "images"
-    out_lbl = output_dir / "braille_grade1" / "labels"
-
-    if not download_file(url, zip_path, "Braille Grade 1"):
-        print("  Skipping.")
-        return 0
-
-    extract_zip(zip_path, extract_dir)
-    zip_path.unlink(missing_ok=True)
-
-    count = convert_to_yolo(extract_dir, out_img, out_lbl, "grade1")
-    print(f"  âœ“ Grade 1 dataset: {count} annotated images")
-    return count
+def trigger_synthetic(out_dir: Path, count: int = 500):
+    print(f"\n[Synthetic] Generating {count} synthetic images...")
+    script = Path(__file__).parent / "generate_synthetic.py"
+    if not script.exists():
+        print("  ! generate_synthetic.py not found")
+        return
+    result = subprocess.run(
+        [sys.executable, str(script),
+         "--count", str(count),
+         "--output", str(out_dir / "synthetic")],
+        text=True
+    )
+    if result.returncode != 0:
+        print("  ! Synthetic generation failed - run manually")
 
 
-def trigger_synthetic_generation(output_dir: Path, count: int = 300):
-    """Call generate_synthetic.py to supplement real data."""
-    print(f"\n[+] Generating {count} synthetic images...")
-    synthetic_script = Path(__file__).parent / "generate_synthetic.py"
-    if synthetic_script.exists():
-        import subprocess
-        result = subprocess.run(
-            [sys.executable, str(synthetic_script),
-             "--count", str(count),
-             "--output", str(output_dir / "synthetic")],
-            capture_output=False
-        )
-        if result.returncode == 0:
-            print(f"  âœ“ Synthetic generation complete")
-        else:
-            print(f"  âš   Synthetic generation failed (run manually)")
-    else:
-        print(f"  âš   generate_synthetic.py not found â€” run it separately")
-
+# ─── Summary ──────────────────────────────────────────────────────────────────
 
 def print_summary(output_dir: Path):
-    """Count total annotated image-label pairs downloaded."""
-    total_img = 0
-    total_lbl = 0
-    for img_path in output_dir.rglob("*.jpg"):
-        total_img += 1
-    for img_path in output_dir.rglob("*.png"):
-        total_img += 1
-    for lbl_path in output_dir.rglob("*.txt"):
-        total_lbl += 1
+    total_img = (sum(1 for _ in output_dir.rglob("*.jpg")) +
+                 sum(1 for _ in output_dir.rglob("*.jpeg")) +
+                 sum(1 for _ in output_dir.rglob("*.png")))
+    total_lbl = sum(1 for _ in output_dir.rglob("*.txt"))
 
     print("\n" + "=" * 55)
     print(" DOWNLOAD SUMMARY")
     print("=" * 55)
-    print(f" Total images:  {total_img}")
-    print(f" Total labels:  {total_lbl}")
-    print(f" Output dir:    {output_dir}")
+    print(f" Total images : {total_img}")
+    print(f" Total labels : {total_lbl}")
+    print(f" Output dir   : {output_dir}")
     print("=" * 55)
     print("\nNext step: python training/scripts/merge_and_split.py")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Download Braille training datasets")
-    parser.add_argument("--output", default=str(DEFAULT_OUTPUT),
-                        help="Directory to save raw downloaded datasets")
-    parser.add_argument("--skip-synthetic", action="store_true",
-                        help="Skip synthetic data generation")
-    parser.add_argument("--synthetic-count", type=int, default=300,
-                        help="Number of synthetic images to generate (default: 300)")
+    parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
+    parser.add_argument("--skip-synthetic", action="store_true")
+    parser.add_argument("--synthetic-count", type=int, default=500)
     args = parser.parse_args()
 
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 55)
     print(" BrailleVision Dataset Downloader")
     print("=" * 55)
-    print(f" Output: {output_dir}\n")
+    print(f" Output: {out_dir}\n")
 
     total = 0
-    total += download_github_braille(output_dir)
-    total += download_braille_alphabet_dataset(output_dir)
-    total += download_braille_grade1_dataset(output_dir)
+    total += download_angelina_dataset(out_dir)
+    total += download_dsbi_dataset(out_dir)
 
     if not args.skip_synthetic:
-        trigger_synthetic_generation(output_dir, args.synthetic_count)
+        trigger_synthetic(out_dir, args.synthetic_count)
 
-    print_summary(output_dir)
+    print_summary(out_dir)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-﻿"""
+"""
 BrailleVision â€” YOLOv8 Training Script (Local)
 
 Trains a YOLOv8n model to detect Braille dots.
@@ -114,16 +114,16 @@ def train(
         "warmup_epochs": cfg.get("warmup_epochs", 3),
 
         # Augmentation
-        "hsv_h":      cfg.get("hsv_h", 0.015),
-        "hsv_s":      cfg.get("hsv_s", 0.3),
-        "hsv_v":      cfg.get("hsv_v", 0.5),   # high for Braille lighting variation
-        "degrees":    cfg.get("degrees", 10.0),
-        "translate":  cfg.get("translate", 0.1),
-        "scale":      cfg.get("scale", 0.5),
-        "flipud":     cfg.get("flipud", 0.0),   # NO vertical flip (Braille has direction)
-        "fliplr":     cfg.get("fliplr", 0.5),
-        "mosaic":     cfg.get("mosaic", 1.0),
-        "blur":       cfg.get("blur", 2),
+        "hsv_h":        cfg.get("hsv_h", 0.015),
+        "hsv_s":        cfg.get("hsv_s", 0.3),
+        "hsv_v":        cfg.get("hsv_v", 0.5),     # high for Braille lighting variation
+        "degrees":      cfg.get("degrees", 10.0),
+        "translate":    cfg.get("translate", 0.1),
+        "scale":        cfg.get("scale", 0.5),
+        "flipud":       cfg.get("flipud", 0.0),     # NO vertical flip (Braille has direction)
+        "fliplr":       cfg.get("fliplr", 0.5),
+        "mosaic":       cfg.get("mosaic", 1.0),
+        "close_mosaic": cfg.get("close_mosaic", 10),  # disable mosaic last N epochs
 
         # Regularisation
         "patience":   cfg.get("patience", 25),  # early stopping
